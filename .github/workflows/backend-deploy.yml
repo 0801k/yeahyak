@@ -9,10 +9,11 @@ on:
   workflow_dispatch:
 
 permissions:
-  id-token: write   # (미사용이어도 무해)
+  id-token: write
   contents: read
 
 env:
+  ACR_NAME: ${{ secrets.ACR_NAME }}               # ex) yeahyakACR
   LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}   # ex) yeahyakacr.azurecr.io
 
 jobs:
@@ -46,19 +47,18 @@ jobs:
             echo "image_tag=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
           fi
 
-      # --- 로그인 디버그 (도메인/캐시 정리) ---
-      - name: Debug registry & logout
-        run: |
-          echo "LOGIN_SERVER='${{ env.LOGIN_SERVER }}'"
-          docker logout "${{ env.LOGIN_SERVER }}" || true
-
-      # --- ACR 로그인 (admin 계정) ---
-      - name: Login to ACR (admin account)
-        uses: docker/login-action@v3
+      # ✅ OIDC로 Azure 로그인 (구독 접근권한 없어도 진행)
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
         with:
-          registry: ${{ env.LOGIN_SERVER }}            # ex) yeahyakacr.azurecr.io (https:// 금지)
-          username: ${{ secrets.ACR_USERNAME }}        # 포털 Access Keys의 '사용자 이름'
-          password: ${{ secrets.ACR_PASSWORD }}        # Access Keys의 password2(회전 권장)
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          allow-no-subscriptions: true
+
+      # ✅ ACR에 Docker 로그인 (비번 없이 토큰 방식)
+      - name: ACR login via Azure CLI
+        run: az acr login -n $ACR_NAME
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -90,7 +90,7 @@ jobs:
             LOGIN_SERVER="${{ env.LOGIN_SERVER }}"
             IMAGE="${LOGIN_SERVER}/backend:latest"
 
-            # 레지스트리 로그인 (admin 계정)
+            # (임시) VM에서는 admin 자격으로 로그인 유지
             echo "${{ secrets.ACR_PASSWORD }}" | docker login "$LOGIN_SERVER" -u "${{ secrets.ACR_USERNAME }}" --password-stdin
 
             docker pull "$IMAGE"
