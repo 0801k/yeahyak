@@ -4,7 +4,7 @@ on:
   push:
     branches: [ "dev" ]
     paths:
-      - "backend/**"        # 백엔드 코드 경로에 맞게 조정
+      - "backend/**"
       - ".github/workflows/backend-deploy.yml"
   workflow_dispatch:
 
@@ -32,7 +32,12 @@ jobs:
           java-version: "17"
           cache: gradle
 
+      - name: Make gradlew executable
+        working-directory: backend
+        run: chmod +x gradlew
+
       - name: Build jar (Gradle)
+        working-directory: backend
         run: ./gradlew clean bootJar -x test
 
       - name: Compute IMAGE_TAG
@@ -56,14 +61,21 @@ jobs:
         run: |
           echo "login_server=$(az acr show -n $ACR_NAME --query loginServer -o tsv)" >> $GITHUB_OUTPUT
 
+      - name: Login to ACR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ steps.acr.outputs.login_server }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Build & Push to ACR
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: ./backend/Dockerfile            # 경로 맞게 수정
+          context: ./backend                 # ✅ backend 기준으로 빌드
+          file: ./backend/Dockerfile
           push: true
           tags: |
             ${{ steps.acr.outputs.login_server }}/backend:${{ steps.meta.outputs.image_tag }}
@@ -87,19 +99,11 @@ jobs:
             LOGIN_SERVER="${{ needs.build-push.outputs.login_server }}"
             IMAGE="${LOGIN_SERVER}/backend:latest"
 
-            # 1) ACR 로그인 (없으면 수행)
             echo "${{ secrets.ACR_PASSWORD }}" | docker login "$LOGIN_SERVER" -u "${{ secrets.ACR_USERNAME }}" --password-stdin
-
-            # 2) 최신 이미지 받기
             docker pull "$IMAGE"
 
-            # 3) 컨테이너 교체 (무중단이 꼭 필요 없다는 가정의 단순 방식)
             docker rm -f backend || true
             docker run -d --name backend \
               -p 8080:8080 \
               --restart unless-stopped \
-              -e SPRING_PROFILES_ACTIVE=prod \
-              "$IMAGE"
-
-            # (선택) 오래된 이미지 정리
-            docker image prune -f
+              -e
