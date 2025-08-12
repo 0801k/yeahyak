@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  id-token: write
+  id-token: write   # (남겨둬도 무해, 현재는 미사용)
   contents: read
 
 env:
@@ -19,9 +19,6 @@ env:
 jobs:
   build-push:
     runs-on: ubuntu-latest
-    outputs:
-      login_server: ${{ steps.acr.outputs.login_server }}
-      image_tag: ${{ steps.meta.outputs.image_tag }}
 
     steps:
       - uses: actions/checkout@v4
@@ -50,22 +47,13 @@ jobs:
             echo "image_tag=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
           fi
 
-      - name: Azure Login (OIDC)
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      # ❌ Azure Login 제거
+      # ❌ az acr show 제거
 
-      - name: Get ACR login server
-        id: acr
-        run: |
-          echo "login_server=$(az acr show -n $ACR_NAME --query loginServer -o tsv)" >> $GITHUB_OUTPUT
-
-      - name: Login to ACR
+      - name: Login to ACR (admin account)
         uses: docker/login-action@v3
         with:
-          registry: ${{ steps.acr.outputs.login_server }}
+          registry: ${{ env.LOGIN_SERVER }}
           username: ${{ secrets.ACR_USERNAME }}
           password: ${{ secrets.ACR_PASSWORD }}
 
@@ -75,12 +63,12 @@ jobs:
       - name: Build & Push to ACR
         uses: docker/build-push-action@v6
         with:
-          context: ./backend                 # ✅ backend 기준으로 빌드
+          context: ./backend
           file: ./backend/Dockerfile
           push: true
           tags: |
-            ${{ steps.acr.outputs.login_server }}/backend:${{ steps.meta.outputs.image_tag }}
-            ${{ steps.acr.outputs.login_server }}/backend:latest
+            ${{ env.LOGIN_SERVER }}/backend:${{ steps.meta.outputs.image_tag }}
+            ${{ env.LOGIN_SERVER }}/backend:latest
 
   deploy:
     runs-on: ubuntu-latest
@@ -94,10 +82,9 @@ jobs:
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
           script_stop: true
-          envs: ACR_USERNAME,ACR_PASSWORD
           script: |
             set -e
-            LOGIN_SERVER="${{ needs.build-push.outputs.login_server }}"
+            LOGIN_SERVER="${{ env.LOGIN_SERVER }}"
             IMAGE="${LOGIN_SERVER}/backend:latest"
 
             echo "${{ secrets.ACR_PASSWORD }}" | docker login "$LOGIN_SERVER" -u "${{ secrets.ACR_USERNAME }}" --password-stdin
@@ -107,4 +94,7 @@ jobs:
             docker run -d --name backend \
               -p 8080:8080 \
               --restart unless-stopped \
-              -e
+              -e SPRING_PROFILES_ACTIVE=prod \
+              "$IMAGE"
+
+            docker image prune -f
