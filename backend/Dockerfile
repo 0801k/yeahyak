@@ -3,9 +3,9 @@ FROM gradle:8.7-jdk17 AS builder
 WORKDIR /workspace
 
 # Gradle Wrapper/설정 (backend 기준)
-COPY gradlew gradlew.bat ./                #  둘 중 하나만 있어도 OK
-COPY gradle/ ./gradle/                     #    폴더가 없으면 이 줄을 지우세요
-COPY build.gradle ./build.gradle           #   필수
+COPY gradlew gradlew.bat ./
+COPY gradle/ ./gradle/
+COPY build.gradle ./build.gradle
 # settings.gradle이 없다면 이 줄을 지우세요
 # COPY settings.gradle ./settings.gradle
 # gradle.properties가 없다면 이 줄을 지우세요
