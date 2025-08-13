@@ -13,8 +13,8 @@ permissions:
   contents: read
 
 env:
-  ACR_NAME: ${{ secrets.ACR_NAME }}               # ex) yeahyakACR
-  LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}   # ex) yeahyakacr.azurecr.io
+  ACR_NAME: ${{ secrets.ACR_NAME }}               # e.g. yeahyakACR
+  LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}   # e.g. yeahyakacr.azurecr.io
 
 jobs:
   build-push:
@@ -30,13 +30,18 @@ jobs:
           java-version: "17"
           cache: gradle
 
+      # CI에서 먼저 JAR 생성
       - name: Make gradlew executable
         working-directory: backend
-        run: chmod +x gradlew
+        run: chmod +x gradlew || true
 
       - name: Build jar (Gradle)
         working-directory: backend
-        run: ./gradlew clean bootJar -x test
+        run: ./gradlew clean bootJar -x test --no-daemon --stacktrace --info
+
+      - name: List build artifacts
+        working-directory: backend
+        run: ls -alh build/libs
 
       - name: Compute IMAGE_TAG
         id: meta
@@ -47,7 +52,7 @@ jobs:
             echo "image_tag=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
           fi
 
-      # ✅ OIDC로 Azure 로그인 (구독 접근권한 없어도 진행)
+      # Azure OIDC 로그인 후 ACR 로그인
       - name: Azure Login (OIDC)
         uses: azure/login@v2
         with:
@@ -56,13 +61,14 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           allow-no-subscriptions: true
 
-      # ✅ ACR에 Docker 로그인 (비번 없이 토큰 방식)
-      - name: ACR login via Azure CLI
+      - name: ACR login (az acr login)
         run: az acr login -n $ACR_NAME
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # Dockerfile은 런타임 전용이어야 하며 (JRE),
+      # backend/build/libs/*.jar 를 이미지에 COPY 합니다.
       - name: Build & Push to ACR
         uses: docker/build-push-action@v6
         with:
@@ -72,6 +78,8 @@ jobs:
           tags: |
             ${{ env.LOGIN_SERVER }}/backend:${{ steps.meta.outputs.image_tag }}
             ${{ env.LOGIN_SERVER }}/backend:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   deploy:
     runs-on: ubuntu-latest
@@ -90,7 +98,7 @@ jobs:
             LOGIN_SERVER="${{ env.LOGIN_SERVER }}"
             IMAGE="${LOGIN_SERVER}/backend:latest"
 
-            # (임시) VM에서는 admin 자격으로 로그인 유지
+            # VM에서 ACR 로그인 (admin 계정/토큰 사용)
             echo "${{ secrets.ACR_PASSWORD }}" | docker login "$LOGIN_SERVER" -u "${{ secrets.ACR_USERNAME }}" --password-stdin
 
             docker pull "$IMAGE"
