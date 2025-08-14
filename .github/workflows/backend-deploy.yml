@@ -10,7 +10,7 @@ on:
 
 permissions:
   id-token: write
-  contents: read-1
+  contents: read
 
 env:
   ACR_NAME: ${{ secrets.ACR_NAME }}               # e.g. yeahyakACR
