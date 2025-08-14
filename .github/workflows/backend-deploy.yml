@@ -95,7 +95,7 @@ jobs:
           script_stop: true
           script: |
             set -e
-            LOGIN_SERVER=${{ secrets.ACR_LOGIN_SERVER }}
+            LOGIN_SERVER="${{ env.LOGIN_SERVER }}"
             IMAGE="${LOGIN_SERVER}/backend:latest"
 
             # VM에서 ACR 로그인 (admin 계정/토큰 사용)
