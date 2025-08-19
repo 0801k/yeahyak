@@ -5,6 +5,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -52,18 +53,23 @@ public class SecurityConfig {
         return new RestTemplate();
     }
 
-    // CORS 분리해 재사용 가능하도록
+    // CORS
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        // 필요한 도메인 추가
+        // 실제 사용하는 프론트 Origin들을 정확히 기입
         config.setAllowedOrigins(List.of(
-                "http://localhost:5173"
-                // "https://your-domain.example"  // 배포 도메인 추가
+                "http://localhost:5173",
+                "http://127.0.0.1:5173",
+                // 배포 시 아래 둘 중 하나 이상을 실제 값으로 추가
+                "http://4.230.25.25"
+                //"https://<YOUR_DOMAIN>"        // 예: https://yeahyak.example.com
         ));
         config.setAllowedMethods(List.of("GET","POST","PUT","PATCH","DELETE","OPTIONS"));
-        config.setAllowedHeaders(List.of("*"));
+        config.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Requested-With", "*"));
+        config.setExposedHeaders(List.of("Authorization")); // 필요시 응답 헤더 노출
         config.setAllowCredentials(true);
+
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);
         return source;
@@ -74,7 +80,6 @@ public class SecurityConfig {
         http
                 .csrf(csrf -> csrf.disable())
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-                // JWT 사용 시 세션은 Stateless
                 .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .formLogin(form -> form.disable())
                 .httpBasic(basic -> basic.disable())
@@ -91,8 +96,11 @@ public class SecurityConfig {
                         })
                 )
                 .authorizeHttpRequests(auth -> auth
-                        // 공개 경로
+                        // 프리플라이트 전부 허용
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        // 공개 경로 (★ 실제 로그인 경로 포함)
                         .requestMatchers(
+                                "/api/auth/**",   // ★ 추가: 실제 auth 경로
                                 "/auth/**",
                                 "/actuator/**",
                                 "/health",
